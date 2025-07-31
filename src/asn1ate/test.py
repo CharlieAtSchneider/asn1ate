@@ -34,21 +34,28 @@ from asn1ate import parser, sema, pyasn1gen
 
 
 def parse_args():
-    ap = argparse.ArgumentParser(description='Test driver for asn1ate.')
-    ap.add_argument('file', help='ASN.1 file to test.')
-    ap.add_argument('--outdir',
-                    help='Write Python module files to directory instead of stdout')
-    ap.add_argument('--include-asn1', action='store_true',
-                    help='Pass --include-asn1 to code generator')
+    ap = argparse.ArgumentParser(description="Test driver for asn1ate.")
+    ap.add_argument("file", help="ASN.1 file to test.")
+    ap.add_argument(
+        "--outdir", help="Write Python module files to directory instead of stdout"
+    )
+    ap.add_argument(
+        "--include-asn1",
+        action="store_true",
+        help="Pass --include-asn1 to code generator",
+    )
 
     # Actions
     group = ap.add_mutually_exclusive_group(required=True)
-    group.add_argument('--parse', action='store_true',
-                       help='Only parse.')
-    group.add_argument('--sema', action='store_true',
-                       help='Only parse and build semantic model')
-    group.add_argument('--gen', action='store_true',
-                       help='Parse, build semantic model and generate pyasn1 code (default)')
+    group.add_argument("--parse", action="store_true", help="Only parse.")
+    group.add_argument(
+        "--sema", action="store_true", help="Only parse and build semantic model"
+    )
+    group.add_argument(
+        "--gen",
+        action="store_true",
+        help="Parse, build semantic model and generate pyasn1 code (default)",
+    )
 
     return ap.parse_args()
 
@@ -63,8 +70,9 @@ def generate_module_code(args):
         if split:
             os.chdir(args.outdir)
 
-        pyasn1gen.main(argparse.Namespace(file=infile, split=split,
-                                          include_asn1=args.include_asn1))
+        pyasn1gen.main(
+            argparse.Namespace(file=infile, split=split, include_asn1=args.include_asn1)
+        )
     finally:
         os.chdir(prev_cwd)
 
@@ -76,7 +84,7 @@ def main():
         asn1def = f.read()
 
     if args.outdir and not args.gen:
-        print('ERROR: can only use --outdir with --gen', file=sys.stderr)
+        print("ERROR: can only use --outdir with --gen", file=sys.stderr)
         return 1
 
     parse_tree = parser.parse_asn1(asn1def)
@@ -96,5 +104,5 @@ def main():
     return 0
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())
