@@ -1,0 +1,19 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: run pyasn1ate test script",
+            "type": "debugpy",
+            "request": "launch",
+            "python": ".venv/bin/python",
+            "console": "integratedTerminal",
+            "program": "${workspaceFolder}/src/asn1ate/test.py",
+            "args": [
+                "--outdir=_testdata",
+                "--gen",
+                "testdata/external_valueref.asn",
+            ],
+            //"justMyCode": false,
+        }
+    ]
+}

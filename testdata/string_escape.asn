@@ -5,4 +5,6 @@ BEGIN
   newlineString PrintableString ::= "String with \n in it"
 
   -- TODO: Cover double- and triple-quote string escaping when that works
+  -- According to https://en.wikipedia.org/wiki/PrintableString, PrintableStrings cannot have backslashes in them
+  -- Should this test be removed?
 END

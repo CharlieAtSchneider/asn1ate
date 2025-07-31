@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-# Copyright (c) 2013-2019, Schneider Electric Buildings AB
+# Copyright (c) 2013-2025, Schneider Electric Buildings AB
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -25,19 +25,51 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from __future__ import print_function  # Python 2 compatibility
-
+import argparse
+import contextlib
+import keyword
 import os
 import sys
-import argparse
-import keyword
-import contextlib
-from asn1ate import parser, __version__
+from pathlib import Path
+
+from asn1ate import __version__, parser
+from asn1ate.sema import (
+    REGISTERED_OID_NAMES,
+    BinaryStringValue,
+    BitStringType,
+    ChoiceType,
+    ComponentType,
+    ConstructedType,
+    DefinedType,
+    ExtensionMarker,
+    HexStringValue,
+    NameAndNumberForm,
+    NamedType,
+    NameForm,
+    NumberForm,
+    ObjectIdentifierValue,
+    ReferencedValue,
+    SelectionType,
+    SequenceOfType,
+    SequenceType,
+    SetOfType,
+    SetType,
+    SimpleType,
+    SingleValueConstraint,
+    SizeConstraint,
+    TaggedType,
+    TagImplicitness,
+    TypeAssignment,
+    ValueAssignment,
+    ValueListType,
+    ValueRangeConstraint,
+    build_semantic_model,
+    dependency_sort,
+)
 from asn1ate.support import pygen
-from asn1ate.sema import *
 
 
-class Pyasn1Backend(object):
+class Pyasn1Backend:
     """Backend to generate pyasn1 declarations from semantic tree.
 
     Pyasn1 represents type assignments as class derivation, e.g.
@@ -127,9 +159,10 @@ class Pyasn1Backend(object):
         }
 
     def generate_code(self):
-        self.writer.write_line("# %s" % self.sema_module.name)
+        self.writer.write_line(f"# {self.sema_module.name}")
         self.writer.write_line(
-            "from pyasn1.type import univ, char, namedtype, namedval, tag, constraint, useful"
+            "from pyasn1.type import univ, char, "
+            "namedtype, namedval, tag, constraint, useful"
         )
         for module in self.referenced_modules:
             if module is not self.sema_module:
@@ -160,9 +193,8 @@ class Pyasn1Backend(object):
 
     def generate_definition(self, assignment):
         if not isinstance(assignment, (ValueAssignment, TypeAssignment)):
-            raise Exception(
-                "Unexpected assignment type %s" % assignment.__class__.__name__
-            )
+            err_msg = f"Unexpected assignment type {assignment.__class__.__name__}"
+            raise TypeError(err_msg)
 
         if isinstance(assignment, ValueAssignment):
             return None  # Nothing to do here.
@@ -193,7 +225,7 @@ class Pyasn1Backend(object):
 
         assigned_type = _translate_type(assigned_type)
         base_type = _translate_type(type_decl.type_name)
-        fragment.write_line("class %s(%s):" % (assigned_type, base_type))
+        fragment.write_line(f"class {assigned_type}({base_type}):")
         fragment.push_indent()
         fragment.write_line("pass")
         fragment.pop_indent()
@@ -208,24 +240,23 @@ class Pyasn1Backend(object):
         )
         assigned_value = _sanitize_identifier(assigned_value)
         construct_expr = self.build_value_construct_expr(type_decl, value)
-        return "%s = %s" % (assigned_value, construct_expr)
+        return f"{assigned_value} = {construct_expr}"
 
     def defn_simple_type(self, class_name, t):
         if t.constraint:
-            return "%s.subtypeSpec = %s" % (
-                class_name,
-                self.build_constraint_expr(t.constraint),
+            return (
+                f"{class_name}.subtypeSpec = {self.build_constraint_expr(t.constraint)}"
             )
 
         return None
 
-    def defn_defined_type(self, class_name, t):
+    def defn_defined_type(self, _class_name, _t) -> None:
         return None
 
     def defn_constructed_type(self, class_name, t):
         fragment = self.writer.get_fragment()
 
-        fragment.write_line("%s.componentType = namedtype.NamedTypes(" % class_name)
+        fragment.write_line(f"{class_name}.componentType = namedtype.NamedTypes(")
         fragment.push_indent()
         fragment.write_block(self.inline_component_types(t.components))
         fragment.pop_indent()
@@ -244,13 +275,14 @@ class Pyasn1Backend(object):
         elif implicitness == TagImplicitness.EXPLICIT:
             tag_implicitness = "tagExplicitly"
         else:
-            raise Exception("Unexpected implicitness: %s" % implicitness)
+            err_msg = f"Unexpected implicitness: {implicitness}"
+            raise Exception(err_msg)
 
         base_type = _translate_type(t.type_decl.type_name)
 
         fragment.write_line(
-            "%s.tagSet = %s.tagSet.%s(%s)"
-            % (class_name, base_type, tag_implicitness, self.build_tag_expr(t))
+            "{class_name}.tagSet = "
+            f"{base_type}.tagSet.{tag_implicitness}({self.build_tag_expr(t)})"
         )
         nested_dfn = self.generate_defn(class_name, t.type_decl)
         if nested_dfn:
@@ -258,18 +290,18 @@ class Pyasn1Backend(object):
 
         return str(fragment)
 
-    def defn_selection_type(self, class_name, t):
+    def defn_selection_type(self, _class_name, _t):
         return None
 
     def defn_value_list_type(self, class_name, t):
         fragment = self.writer.get_fragment()
 
         if t.named_values:
-            fragment.write_line("%s.namedValues = namedval.NamedValues(" % class_name)
+            fragment.write_line(f"{class_name}.namedValues = namedval.NamedValues(")
             fragment.push_indent()
 
             named_values = [
-                "('%s', %s)" % (v.identifier, v.value)
+                f"('{v.identifier}', {v.value})"
                 for v in t.named_values
                 if not isinstance(v, ExtensionMarker)
             ]
@@ -280,8 +312,7 @@ class Pyasn1Backend(object):
 
         if t.constraint:
             fragment.write_line(
-                "%s.subtypeSpec=%s"
-                % (class_name, self.build_constraint_expr(t.constraint))
+                f"{class_name}.subtypeSpec={self.build_constraint_expr(t.constraint)}"
             )
 
         return str(fragment)
@@ -293,17 +324,16 @@ class Pyasn1Backend(object):
         fragment = self.writer.get_fragment()
 
         if t.named_bits:
-            fragment.write_line("%s.namedValues = namedval.NamedValues(" % class_name)
+            fragment.write_line(f"{class_name}.namedValues = namedval.NamedValues(")
             fragment.push_indent()
-            named_bits = ["('%s', %s)" % (b.identifier, b.value) for b in t.named_bits]
+            named_bits = [f"('{b.identifier}', {b.value})" for b in t.named_bits]
             fragment.write_enumeration(named_bits)
             fragment.pop_indent()
             fragment.write_line(")")
 
         if t.constraint:
             fragment.write_line(
-                "%s.subtypeSpec=%s"
-                % (class_name, self.build_constraint_expr(t.constraint))
+                f"{class_name}.subtypeSpec={self.build_constraint_expr(t.constraint)}"
             )
 
         return str(fragment)
@@ -311,13 +341,12 @@ class Pyasn1Backend(object):
     def defn_collection_type(self, class_name, t):
         fragment = self.writer.get_fragment()
         fragment.write_line(
-            "%s.componentType = %s" % (class_name, self.generate_expr(t.type_decl))
+            f"{class_name}.componentType = {self.generate_expr(t.type_decl)}"
         )
 
         if t.size_constraint:
             fragment.write_line(
-                "%s.subtypeSpec=%s"
-                % (class_name, self.build_constraint_expr(t.size_constraint))
+                f"{class_name}.subtypeSpec={self.build_constraint_expr(t.size_constraint)}"
             )
 
         return str(fragment)
@@ -325,10 +354,9 @@ class Pyasn1Backend(object):
     def inline_simple_type(self, t):
         type_expr = _translate_type(t.type_name) + "()"
         if t.constraint:
-            type_expr += ".subtype(subtypeSpec=%s)" % self.build_constraint_expr(
-                t.constraint
+            type_expr += (
+                f".subtype(subtypeSpec={self.build_constraint_expr(t.constraint)})"
             )
-
         return type_expr
 
     def inline_defined_type(self, t):
@@ -344,7 +372,7 @@ class Pyasn1Backend(object):
 
         class_name = _translate_type(t.type_name)
 
-        fragment.write_line("%s(componentType=namedtype.NamedTypes(" % class_name)
+        fragment.write_line(f"{class_name}(componentType=namedtype.NamedTypes(")
 
         fragment.push_indent()
         fragment.write_block(self.inline_component_types(t.components))
@@ -357,10 +385,11 @@ class Pyasn1Backend(object):
     def inline_component_types(self, components):
         fragment = self.writer.get_fragment()
 
-        component_exprs = []
-        for c in components:
-            if not isinstance(c, ExtensionMarker):
-                component_exprs.append(self.generate_expr(c))
+        component_exprs = [
+            self.generate_expr(expr)
+            for expr in components
+            if not isinstance(expr, ExtensionMarker)
+        ]
 
         fragment.write_enumeration(component_exprs)
 
@@ -375,17 +404,19 @@ class Pyasn1Backend(object):
         elif implicitness == TagImplicitness.EXPLICIT:
             tag_implicitness = "explicitTag"
         else:
-            raise Exception("Unexpected implicitness: %s" % implicitness)
+            err_msg = f"Unexpected implicitness: {implicitness}"
+            raise Exception(err_msg)
 
         type_expr = self.generate_expr(t.type_decl)
-        type_expr += ".subtype(%s=%s)" % (tag_implicitness, self.build_tag_expr(t))
+        type_expr += f".subtype({tag_implicitness}={self.build_tag_expr(t)})"
 
         return type_expr
 
     def inline_selection_type(self, t):
         selected_type = self.sema_module.resolve_selection_type(t)
         if selected_type is None:
-            raise Exception("Found no member %s in %s" % (t.identifier, t.type_decl))
+            err_msg = f"Found no member {t.identifier} in {t.type_decl}"
+            raise Exception(err_msg)
 
         return self.generate_expr(selected_type)
 
@@ -400,7 +431,7 @@ class Pyasn1Backend(object):
         else:
             tag_format = "tag.tagFormatSimple"
 
-        return "tag.Tag(%s, %s, %s)" % (context, tag_format, tag_def.class_number)
+        return f"tag.Tag({context}, {tag_format}, {tag_def.class_number})"
 
     def build_constraint_expr(self, constraint):
         def unpack_size_constraint(nested):
@@ -408,35 +439,34 @@ class Pyasn1Backend(object):
                 return self.translate_value(nested.values[0]), self.translate_value(
                     nested.values[0]
                 )
-            elif isinstance(nested, ValueRangeConstraint):
+            if isinstance(nested, ValueRangeConstraint):
                 return self.translate_value(nested.min_value), self.translate_value(
                     nested.max_value
                 )
-            else:
-                raise Exception(
-                    "Unrecognized nested size constraint type: %s"
-                    % nested.__class__.__name__
-                )
+            err_msg = (
+                f"Unrecognized nested size constraint type: {nested.__class__.__name__}"
+            )
+            raise Exception(err_msg)
 
         if isinstance(constraint, SingleValueConstraint):
-            return "constraint.SingleValueConstraint(%s)" % ", ".join(
+            constraint_values = ", ".join(
                 self.translate_value(v) for v in constraint.values
             )
-        elif isinstance(constraint, SizeConstraint):
+            return f"constraint.SingleValueConstraint({constraint_values})"
+        if isinstance(constraint, SizeConstraint):
             min_value, max_value = unpack_size_constraint(constraint.nested)
-            return "constraint.ValueSizeConstraint(%s, %s)" % (
-                self.translate_value(min_value),
-                self.translate_value(max_value),
+            return (
+                "constraint.ValueSizeConstraint("
+                f"{self.translate_value(min_value)}, {self.translate_value(max_value)})"
             )
-        elif isinstance(constraint, ValueRangeConstraint):
-            return "constraint.ValueRangeConstraint(%s, %s)" % (
-                self.translate_value(constraint.min_value),
-                self.translate_value(constraint.max_value),
+        if isinstance(constraint, ValueRangeConstraint):
+            return (
+                "constraint.ValueRangeConstraint("
+                f"{self.translate_value(constraint.min_value)}, "
+                f"{self.translate_value(constraint.max_value)})"
             )
-        else:
-            raise Exception(
-                "Unrecognized constraint type: %s" % constraint.__class__.__name__
-            )
+        err_msg = f"Unrecognized constraint type: {constraint.__class__.__name__}"
+        raise Exception(err_msg)
 
     def build_value_construct_expr(self, type_decl, value):
         """Build a valid construct-expression for values, depending on
@@ -449,25 +479,21 @@ class Pyasn1Backend(object):
             """
             if isinstance(value, BinaryStringValue):
                 if type_name == "OCTET STRING":
-                    return "binValue='%s'" % value.value
-                else:
-                    return "\"'%s'B\"" % value.value
-            elif isinstance(value, HexStringValue):
+                    return f"binValue='{value.value}'"
+                return f"\"'{value.value}'B\""
+            if isinstance(value, HexStringValue):
                 if type_name == "OCTET STRING":
-                    return "hexValue='%s'" % value.value
-                else:
-                    return "\"'%s'H\"" % value.value
-            else:
-                return self.translate_value(value)
+                    return f"hexValue='{value.value}'"
+                return f"\"'{value.value}'H\""
+            return self.translate_value(value)
 
         if isinstance(value, ObjectIdentifierValue):
             return self.build_object_identifier_value(value)
-        else:
-            value_type = _translate_type(type_decl.type_name)
-            root_type = self.sema_module.resolve_type_decl(
-                type_decl, self.referenced_modules
-            )
-            return "%s(%s)" % (value_type, build_value_expr(root_type.type_name, value))
+        value_type = _translate_type(type_decl.type_name)
+        root_type = self.sema_module.resolve_type_decl(
+            type_decl, self.referenced_modules
+        )
+        return f"{value_type}({build_value_expr(root_type.type_name, value)})"
 
     def inline_component_type(self, t):
         if t.components_of_type:
@@ -485,55 +511,51 @@ class Pyasn1Backend(object):
             return included_content.strip()
 
         if t.optional:
-            return "namedtype.OptionalNamedType('%s', %s)" % (
-                t.identifier,
-                self.generate_expr(t.type_decl),
+            return (
+                f"namedtype.OptionalNamedType('{t.identifier}', "
+                f"{self.generate_expr(t.type_decl)})"
             )
-        elif t.default_value is not None:
+        if t.default_value is not None:
             type_expr = self.generate_expr(t.type_decl)
-            type_expr += ".subtype(value=%s)" % self.translate_value(t.default_value)
+            type_expr += f".subtype(value={self.translate_value(t.default_value)})"
 
-            return "namedtype.DefaultedNamedType('%s', %s)" % (t.identifier, type_expr)
-        else:
-            return "namedtype.NamedType('%s', %s)" % (
-                t.identifier,
-                self.generate_expr(t.type_decl),
-            )
+            return f"namedtype.DefaultedNamedType('{t.identifier}', {type_expr})"
+        return (
+            f"namedtype.NamedType('{t.identifier}', {self.generate_expr(t.type_decl)})"
+        )
 
     def inline_named_type(self, t):
-        return "namedtype.NamedType('%s', %s)" % (
-            t.identifier,
-            self.generate_expr(t.type_decl),
+        return (
+            f"namedtype.NamedType('{t.identifier}', {self.generate_expr(t.type_decl)})"
         )
 
     def inline_value_list_type(self, t):
         class_name = _translate_type(t.type_name)
         if t.named_values:
             named_values = [
-                "('%s', %s)" % (v.identifier, v.value)
+                f"('{v.identifier}', {v.value})"
                 for v in t.named_values
                 if not isinstance(v, ExtensionMarker)
             ]
-            return "%s(namedValues=namedval.NamedValues(%s))" % (
-                class_name,
-                ", ".join(named_values),
+            return (
+                f"{class_name}(namedValues=namedval.NamedValues("
+                f"{', '.join(named_values)}))"
             )
-        else:
-            return class_name + "()"
+        return class_name + "()"
 
     def inline_sequenceof_type(self, t):
-        expr = "univ.SequenceOf(componentType=%s)" % self.generate_expr(t.type_decl)
+        expr = f"univ.SequenceOf(componentType={self.generate_expr(t.type_decl)})"
         if t.size_constraint:
-            expr += ".subtype(subtypeSpec=%s)" % self.build_constraint_expr(
-                t.size_constraint
+            expr += (
+                f".subtype(subtypeSpec={self.build_constraint_expr(t.size_constraint)})"
             )
         return expr
 
     def inline_setof_type(self, t):
-        expr = "univ.SetOf(componentType=%s)" % self.generate_expr(t.type_decl)
+        expr = f"univ.SetOf(componentType={self.generate_expr(t.type_decl)})"
         if t.size_constraint:
-            expr += ".subtype(subtypeSpec=%s)" % self.build_constraint_expr(
-                t.size_constraint
+            expr += (
+                f".subtype(subtypeSpec={self.build_constraint_expr(t.size_constraint)})"
             )
         return expr
 
@@ -551,9 +573,10 @@ class Pyasn1Backend(object):
             elif isinstance(c, NameAndNumberForm):
                 objid_components.append(str(c.number.value))
             else:
-                raise Exception("Unexpected component type %s" % c.__class__.__name__)
+                err_msg = f"Unexpected component type {c.__class__.__name__}"
+                raise TypeError(err_msg)
 
-        return "_OID(%s)" % ", ".join(objid_components)
+        return f"_OID({', '.join(objid_components)})"
 
     def generate_OID(self):
         fragment = self.writer.get_fragment()
@@ -589,10 +612,7 @@ class Pyasn1Backend(object):
 
             # If this is a cross-module reference, extract the Python module
             # name as a prefix.
-            if value.module_ref:
-                module = value.module_ref.name
-            else:
-                module = None
+            module = value.module_ref.name if value.module_ref else None
 
             if module and module != self.sema_module.name:
                 v = _sanitize_module(module) + "." + v
@@ -665,7 +685,8 @@ def _translate_type(type_name):
     Non-builtins are not translated.
     """
     if not isinstance(type_name, str):
-        raise Exception("Type name must be a string")
+        err_msg = "Type name must be a string"
+        raise TypeError(err_msg)
     type_name = _sanitize_identifier(type_name)
 
     return _ASN1_BUILTIN_TYPES.get(type_name, type_name)
@@ -711,10 +732,8 @@ def _maybe_open(filename):
     Otherwise return a file object opened for writing, and close it at
     context-manager exit.
     """
-    if filename == "-":
-        fileobj = sys.stdout
-    else:
-        fileobj = open(filename, "w")
+    filename = Path(filename)
+    fileobj = sys.stdout if filename == "-" else filename.open("w")
 
     yield fileobj
 
@@ -724,8 +743,7 @@ def _maybe_open(filename):
 
 # Simplistic command-line driver
 def main(args):
-    with open(args.file, "r") as data:
-        asn1def = data.read()
+    asn1def = Path(args.file).read_text(encoding="utf-8")
 
     parse_tree = parser.parse_asn1(asn1def)
 
@@ -747,15 +765,10 @@ def main(args):
         header = None
 
     for module in modules:
-        if args.split:
-            outfile = _sanitize_module(module.name) + ".py"
-        else:
-            outfile = "-"
-
+        outfile = _sanitize_module(module.name) + ".py" if args.split else "-"
         if args.include_asn1:
-            footer = "ASN1_SOURCES[%r] = %s" % (
-                module.name,
-                pygen.format_longstring(str(module)),
+            footer = (
+                f"ASN1_SOURCES[{module.name}] = {pygen.format_longstring(str(module))}"
             )
             footer += os.linesep
         else:

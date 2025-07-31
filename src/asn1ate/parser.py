@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2019, Schneider Electric Buildings AB
+# Copyright (c) 2013-2025, Schneider Electric Buildings AB
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -24,43 +24,45 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import re
-from copy import copy
+from collections.abc import Callable
+from copy import deepcopy
+
 from pyparsing import (
+    CaselessLiteral,
+    Combine,
+    DelimitedList,
+    Forward,
+    Group,
     Keyword,
     Literal,
-    Word,
     OneOrMore,
-    ZeroOrMore,
-    Combine,
-    Regex,
-    Forward,
     Optional,
-    Group,
+    Or,
+    ParseResults,
+    Regex,
     Suppress,
-    delimitedList,
-    cStyleComment,
+    Word,
+    ZeroOrMore,
+    c_style_comment,
+    dbl_quoted_string,
     nums,
     srange,
-    dblQuotedString,
-    Or,
-    CaselessLiteral,
 )
 
-__all__ = ["parse_asn1", "AnnotatedToken"]
+__all__ = ["AnnotatedToken", "parse_asn1"]
 
 
-def parse_asn1(asn1_definition):
+def parse_asn1(asn1_definition) -> list:
     """Parse a string containing one or more ASN.1 module definitions.
     Returns a list of module syntax trees represented as nested lists of
     AnnotatedToken objects.
     """
     grammar = _build_asn1_grammar()
-    parse_result = grammar.parseString(asn1_definition)
-    parse_tree = parse_result.asList()
-    return parse_tree
+    parse_result = grammar.parse_string(asn1_definition)
+    return parse_result.as_list()
 
 
-def print_parse_tree(node, indent=1):
+def print_parse_tree(node, indent=1) -> None:
     """Debugging aid. Dumps a parse tree as returned
     from parse_asn1 to stdout in indented tree form.
     """
@@ -71,7 +73,7 @@ def print_parse_tree(node, indent=1):
     if type(node) is AnnotatedToken:
         # tagged token
         tag, values = node.ty, node.elements
-        indented_print("%s:" % tag)
+        indented_print(f"{tag}:")
         print_parse_tree(values, indent + 1)
     elif type(node) is list:
         # token list
@@ -82,36 +84,37 @@ def print_parse_tree(node, indent=1):
         indented_print(str(node))
 
 
-class AnnotatedToken(object):
+class AnnotatedToken:
     """A simple data structure to keep track of a token's
     type, identified by a string, and its children.
     Children may be other annotated tokens, lists or simple
     strings.
     """
 
-    def __init__(self, token_type, elements):
+    def __init__(self, token_type, elements) -> None:
         self.ty = token_type
         self.elements = elements
 
-    def __str__(self):
-        return "T(%s)%s" % (self.ty, self.elements)
+    def __str__(self) -> str:
+        return f"T({self.ty}){self.elements}"
 
     __repr__ = __str__
 
 
 def _build_asn1_grammar():
-    def build_identifier(prefix_pattern):
+    def build_identifier(prefix_pattern: str):
         identifier_suffix = Optional(Word(srange("[-0-9a-zA-Z]")))
         # todo: more rigorous? trailing hyphens and -- forbidden
+        # todo: check if this is correct. Why does the prefix only have letter?
         return Combine(Word(srange(prefix_pattern), exact=1) + identifier_suffix)
 
     def braced_list(element_rule):
-        elements_rule = Optional(delimitedList(element_rule))
+        elements_rule = Optional(DelimitedList(element_rule))
         return Suppress("{") + Group(elements_rule) + Suppress("}")
 
-    def annotate(name):
-        def annotation(t):
-            return AnnotatedToken(name, t.asList())
+    def annotate(name: str) -> Callable[[ParseResults], AnnotatedToken]:
+        def annotation(t: ParseResults) -> AnnotatedToken:
+            return AnnotatedToken(name, t.as_list())
 
         return annotation
 
@@ -184,20 +187,24 @@ def _build_asn1_grammar():
         Optional("-") + number
     )  # todo: consider defined values from 18.1
     bstring = Suppress("'") + StringOf("01") + Suppress("'B")
+    bstring.set_parse_action(annotate("BinaryStringValue"))
     hstring = Suppress("'") + StringOf("0123456789ABCDEF") + Suppress("'H")
+    hstring.set_parse_action(annotate("HexStringValue"))
 
     # Comments
     hyphen_comment = Regex(r"--[\s\S]*?(--|$)", flags=re.MULTILINE)
-    comment = hyphen_comment | cStyleComment
+    comment = hyphen_comment | c_style_comment
 
     # identifier
     identifier = build_identifier("[a-z]")
+    identifier.set_parse_action(annotate("Identifier"))
 
     # references
     # these are duplicated to force unique token annotations
     valuereference = build_identifier("[a-z]")
     typereference = build_identifier("[A-Z]")
     module_reference = build_identifier("[A-Z]")
+    module_reference.set_parse_action(annotate("ModuleReference"))
     reference = (
         valuereference | typereference
     )  # TODO: consider object references from 12.1
@@ -208,7 +215,7 @@ def _build_asn1_grammar():
     bitstring_value = bstring | hstring  # todo: consider more forms from 21.9
     integer_value = signed_number
     null_value = NULL
-    cstring_value = dblQuotedString
+    cstring_value = dbl_quoted_string
 
     exponent = CaselessLiteral("e") + signed_number
     real_value = Combine(
@@ -234,11 +241,15 @@ def _build_asn1_grammar():
         external_value_reference | valuereference
     )  # todo: more options from 13.1
     referenced_value = Unique(defined_value)  # todo: more options from 16.11
+    referenced_value.set_parse_action(annotate("ReferencedValue"))
 
     # object identifier value
     name_form = Unique(identifier)
+    name_form.set_parse_action(annotate("NameForm"))
     number_form = Unique(number)
+    number_form.set_parse_action(annotate("NumberForm"))
     name_and_number_form = name_form + Suppress("(") + number_form + Suppress(")")
+    name_and_number_form.set_parse_action(annotate("NameAndNumberForm"))
     objid_components = name_and_number_form | name_form | number_form | defined_value
     objid_components_list = OneOrMore(objid_components)
     object_identifier_value = (
@@ -246,13 +257,18 @@ def _build_asn1_grammar():
         + (objid_components_list | (defined_value + objid_components_list))
         + Suppress("}")
     )
+    object_identifier_value.set_parse_action(annotate("ObjectIdentifierValue"))
 
     value = builtin_value | referenced_value | object_identifier_value
 
     # definitive identifier value
     definitive_number_form = Unique(number)
+    definitive_number_form.set_parse_action(annotate("DefinitiveNumberForm"))
     definitive_name_and_number_form = (
         name_form + Suppress("(") + definitive_number_form + Suppress(")")
+    )
+    definitive_name_and_number_form.set_parse_action(
+        annotate("DefinitiveNameAndNumberForm")
     )
     definitive_objid_component = (
         definitive_name_and_number_form | name_form | definitive_number_form
@@ -261,22 +277,26 @@ def _build_asn1_grammar():
     definitive_identifier = Optional(
         Suppress("{") + definitive_objid_component_list + Suppress("}")
     )
+    definitive_identifier.set_parse_action(annotate("DefinitiveIdentifier"))
 
     # tags
     class_ = UNIVERSAL | APPLICATION | PRIVATE
+    class_.set_parse_action(annotate("TagClass"))
     class_number = Unique(number)  # todo: consider defined values from 30.1
+    class_number.set_parse_action(annotate("TagClassNumber"))
     tag = Suppress("[") + Optional(class_) + class_number + Suppress("]")
+    tag.set_parse_action(annotate("Tag"))
     tag_default = EXPLICIT_TAGS | IMPLICIT_TAGS | AUTOMATIC_TAGS
 
     # extensions
     extension_default = Unique(EXTENSIBILITY_IMPLIED)
-
     # values
 
     # Forward-declare these, they can only be fully defined once
     # we have all types defined. There are some circular dependencies.
     named_type = Forward()
     type_ = Forward()
+    type_.set_parse_action(annotate("Type"))
 
     # constraints
     # todo: consider the full subtype and general constraint syntax described in 45.*
@@ -284,11 +304,13 @@ def _build_asn1_grammar():
     upper_bound = constraint_real_value | signed_number | referenced_value | MAX
 
     single_value_constraint = (
-        Suppress("(") + Group(delimitedList(value, delim="|")) + Suppress(")")
+        Suppress("(") + Group(DelimitedList(value, delim="|")) + Suppress(")")
     )
+    single_value_constraint.set_parse_action(annotate("SingleValueConstraint"))
     value_range_constraint = (
         Suppress("(") + lower_bound + Suppress("..") + upper_bound + Suppress(")")
     )
+    value_range_constraint.set_parse_action(annotate("ValueRangeConstraint"))
     # TODO: Include contained subtype constraint here if we ever implement it.
     size_constraint = (
         Optional(Suppress("("))
@@ -296,6 +318,7 @@ def _build_asn1_grammar():
         + (single_value_constraint | value_range_constraint)
         + Optional(Suppress(")"))
     )
+    size_constraint.set_parse_action(annotate("SizeConstraint"))
 
     # types
     # todo: consider other defined types from 13.1
@@ -304,49 +327,66 @@ def _build_asn1_grammar():
         + typereference
         + Optional(size_constraint, default=None)
     )
+    defined_type.set_parse_action(annotate("DefinedType"))
 
     # TODO: consider exception syntax from 24.1
     extension_marker = Unique(ELLIPSIS)
+    extension_marker.set_parse_action(annotate("ExtensionMarker"))
 
     component_type_optional = named_type + Suppress(OPTIONAL)
+    component_type_optional.set_parse_action(annotate("ComponentTypeOptional"))
     component_type_default = named_type + Suppress(DEFAULT) + value
+    component_type_default.set_parse_action(annotate("ComponentTypeDefault"))
     component_type_components_of = Suppress(COMPONENTS_OF) + type_
+    component_type_components_of.set_parse_action(annotate("ComponentTypeComponentsOf"))
     component_type = (
         component_type_components_of
         | component_type_optional
         | component_type_default
         | named_type
     )
+    component_type.set_parse_action(annotate("ComponentType"))
 
     tagged_type = tag + Optional(IMPLICIT | EXPLICIT, default=None) + type_
+    tagged_type.set_parse_action(annotate("TaggedType"))
 
     named_number_value = Suppress("(") + signed_number + Suppress(")")
+    named_number_value.set_parse_action(annotate("Value"))
     named_number = identifier + named_number_value
+    named_number.set_parse_action(annotate("NamedValue"))
     named_nonumber = Unique(identifier)
+    named_nonumber.set_parse_action(annotate("NamedValue"))
     enumeration = named_number | named_nonumber
 
     set_type = SET + braced_list(component_type | extension_marker)
+    set_type.set_parse_action(annotate("SetType"))
     sequence_type = SEQUENCE + braced_list(component_type | extension_marker)
+    sequence_type.set_parse_action(annotate("SequenceType"))
     sequenceof_type = (
         Suppress(SEQUENCE)
         + Optional(size_constraint, default=None)
         + Suppress(OF)
         + (type_ | named_type)
     )
+    sequenceof_type.set_parse_action(annotate("SequenceOfType"))
     setof_type = (
         Suppress(SET)
         + Optional(size_constraint, default=None)
         + Suppress(OF)
         + (type_ | named_type)
     )
+    setof_type.set_parse_action(annotate("SetOfType"))
     choice_type = CHOICE + braced_list(named_type | extension_marker)
+    choice_type.set_parse_action(annotate("ChoiceType"))
     selection_type = identifier + Suppress("<") + type_
+    selection_type.set_parse_action(annotate("SelectionType"))
     enumerated_type = ENUMERATED + braced_list(enumeration | extension_marker)
     bitstring_type = (
         BIT_STRING
         + Optional(braced_list(named_number), default=[])
         + Optional(single_value_constraint | size_constraint, default=None)
     )
+    bitstring_type.set_parse_action(annotate("BitStringType"))
     integer_type = Unique(INTEGER)
     restricted_integer_type = (
         INTEGER
@@ -394,8 +434,10 @@ def _build_asn1_grammar():
         | object_identifier_type
         | useful_type
     ) + Optional(value_range_constraint | single_value_constraint)
+    simple_type.set_parse_action(annotate("SimpleType"))
     constructed_type = choice_type | sequence_type | set_type
     value_list_type = restricted_integer_type | enumerated_type
+    value_list_type.set_parse_action(annotate("ValueListType"))
     builtin_type = (
         value_list_type
         | tagged_type
@@ -410,14 +452,18 @@ def _build_asn1_grammar():
         defined_type | selection_type
     )  # todo: consider other ref:d types from 16.3
 
-    type_ << (builtin_type | referenced_type)
-    named_type << (identifier + type_)
+    type_ <<= builtin_type | referenced_type
+    named_type <<= identifier + type_
+    named_type.set_parse_action(annotate("NamedType"))
 
     type_assignment = typereference + "::=" + type_
+    type_assignment.set_parse_action(annotate("TypeAssignment"))
     value_assignment = valuereference + type_ + "::=" + value
+    value_assignment.set_parse_action(annotate("ValueAssignment"))
 
     assignment = type_assignment | value_assignment
     assignment_list = ZeroOrMore(assignment)
+    assignment_list.set_parse_action(annotate("AssignmentList"))
 
     # TODO: Maybe handle full assigned-identifier syntax with defined values
     # described in 12.1, but I haven't been able to find examples of it, and I
@@ -425,22 +471,26 @@ def _build_asn1_grammar():
     global_module_reference = module_reference + Optional(
         object_identifier_value, default=None
     )
+    global_module_reference.set_parse_action(annotate("GlobalModuleReference"))
 
     symbol = Unique(reference)  # TODO: parameterized reference?
-    symbol_list = delimitedList(symbol, delim=",")
+    symbol_list = DelimitedList(symbol, delim=",")
     symbols_from_module = Group(
         Group(symbol_list) + Suppress(FROM) + global_module_reference
     )
     symbols_from_module_list = OneOrMore(symbols_from_module)
     symbols_imported = Unique(symbols_from_module_list)
     exports = Suppress(EXPORTS) + Optional(symbol_list) + Suppress(";")
+    exports.set_parse_action(annotate("Exports"))
     imports = Suppress(IMPORTS) + Optional(symbols_imported) + Suppress(";")
+    imports.set_parse_action(annotate("Imports"))
 
     module_body = (
         Optional(exports, default=None)
         + Optional(imports, default=None)
         + assignment_list
     )
+    module_body.set_parse_action(annotate("ModuleBody"))
     module_identifier = module_reference + definitive_identifier
     module_definition = (
         module_identifier
@@ -452,62 +502,9 @@ def _build_asn1_grammar():
         + module_body
         + Suppress(END)
     )
-
     module_definition.ignore(comment)
-
-    # Mark up the parse results with token tags
-    identifier.setParseAction(annotate("Identifier"))
-    named_number_value.setParseAction(annotate("Value"))
-    tag.setParseAction(annotate("Tag"))
-    class_.setParseAction(annotate("TagClass"))
-    class_number.setParseAction(annotate("TagClassNumber"))
-    type_.setParseAction(annotate("Type"))
-    simple_type.setParseAction(annotate("SimpleType"))
-    choice_type.setParseAction(annotate("ChoiceType"))
-    sequence_type.setParseAction(annotate("SequenceType"))
-    set_type.setParseAction(annotate("SetType"))
-    value_list_type.setParseAction(annotate("ValueListType"))
-    bitstring_type.setParseAction(annotate("BitStringType"))
-    sequenceof_type.setParseAction(annotate("SequenceOfType"))
-    setof_type.setParseAction(annotate("SetOfType"))
-    named_number.setParseAction(annotate("NamedValue"))
-    named_nonumber.setParseAction(annotate("NamedValue"))
-    single_value_constraint.setParseAction(annotate("SingleValueConstraint"))
-    size_constraint.setParseAction(annotate("SizeConstraint"))
-    value_range_constraint.setParseAction(annotate("ValueRangeConstraint"))
-    component_type.setParseAction(annotate("ComponentType"))
-    component_type_optional.setParseAction(annotate("ComponentTypeOptional"))
-    component_type_default.setParseAction(annotate("ComponentTypeDefault"))
-    component_type_components_of.setParseAction(annotate("ComponentTypeComponentsOf"))
-    tagged_type.setParseAction(annotate("TaggedType"))
-    named_type.setParseAction(annotate("NamedType"))
-    type_assignment.setParseAction(annotate("TypeAssignment"))
-    value_assignment.setParseAction(annotate("ValueAssignment"))
-    module_reference.setParseAction(annotate("ModuleReference"))
-    global_module_reference.setParseAction(annotate("GlobalModuleReference"))
-    module_body.setParseAction(annotate("ModuleBody"))
-    module_definition.setParseAction(annotate("ModuleDefinition"))
-    extension_marker.setParseAction(annotate("ExtensionMarker"))
-    name_form.setParseAction(annotate("NameForm"))
-    number_form.setParseAction(annotate("NumberForm"))
-    name_and_number_form.setParseAction(annotate("NameAndNumberForm"))
-    object_identifier_value.setParseAction(annotate("ObjectIdentifierValue"))
-    definitive_identifier.setParseAction(annotate("DefinitiveIdentifier"))
-    definitive_number_form.setParseAction(annotate("DefinitiveNumberForm"))
-    definitive_name_and_number_form.setParseAction(
-        annotate("DefinitiveNameAndNumberForm")
-    )
-    exports.setParseAction(annotate("Exports"))
-    imports.setParseAction(annotate("Imports"))
-    assignment_list.setParseAction(annotate("AssignmentList"))
-    bstring.setParseAction(annotate("BinaryStringValue"))
-    hstring.setParseAction(annotate("HexStringValue"))
-    defined_type.setParseAction(annotate("DefinedType"))
-    selection_type.setParseAction(annotate("SelectionType"))
-    referenced_value.setParseAction(annotate("ReferencedValue"))
-
-    start = OneOrMore(module_definition)
-    return start
+    module_definition.set_parse_action(annotate("ModuleDefinition"))
+    return OneOrMore(module_definition)
 
 
 def Unique(token):
@@ -522,7 +519,7 @@ def Unique(token):
     This allows unique parse actions for productions
     with the same underlying rules.
     """
-    return copy(token)
+    return deepcopy(token)
 
 
 def StringOf(elements):

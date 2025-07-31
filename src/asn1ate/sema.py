@@ -1,4 +1,4 @@
-# Copyright (c) 2013-2019, Schneider Electric Buildings AB
+# Copyright (c) 2013-2025, Schneider Electric Buildings AB
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -59,18 +59,14 @@ def topological_sort(assignments):
     - references() -- returns an iterable of reference names
     upon which the assignment depends.
     """
-    graph = dict((a.reference_name(), a.references()) for a in assignments)
+    graph = {a.reference_name(): a.references() for a in assignments}
 
-    def has_predecessor(node):
-        for predecessors in graph.values():
-            if node in predecessors:
-                return True
-
-        return False
+    def has_predecessor(node) -> bool:
+        return any(node in predecessors for predecessors in graph.values())
 
     # Build a topological order of reference names
     topological_order = []
-    roots = [name for name in graph.keys() if not has_predecessor(name)]
+    roots = [name for name in graph if not has_predecessor(name)]
 
     while roots:
         root = roots.pop()
@@ -86,7 +82,8 @@ def topological_sort(assignments):
         topological_order.insert(0, root)
 
     if graph:
-        raise Exception("Can't sort cyclic references: %s" % graph)
+        err_msg = f"Can't sort cyclic references: {graph}"
+        raise Exception(err_msg)
 
     # Sort the actual assignments based on the topological order
     return sorted(
@@ -194,7 +191,7 @@ REGISTERED_OID_NAMES = {
 }
 
 
-class TagImplicitness(object):
+class TagImplicitness:
     """Tag implicit/explicit enumeration"""
 
     IMPLICIT = 0
@@ -219,7 +216,7 @@ etc) must have a method called ``reference_name``.
 """
 
 
-class SemaNode(object):
+class SemaNode:
     """Base class for all sema nodes."""
 
     def children(self):
@@ -274,7 +271,8 @@ class Module(SemaNode):
             self.tag_default = TagImplicitness.AUTOMATIC
         else:
             if tag_default is not None:
-                raise Exception("Unexpected tag default: %s" % tag_default)
+                err_msg = f"Unexpected tag default: {tag_default}"
+                raise Exception(err_msg)
             # Tag default was not specified, default to explicit
             self.tag_default = TagImplicitness.EXPLICIT
 
@@ -309,18 +307,16 @@ class Module(SemaNode):
                         module = ref_mod
                         break
             if not module:
-                raise Exception(
-                    "Unrecognized referenced module %s in %s."
-                    % (
-                        type_decl.module_ref.name,
-                        [module.name for module in referenced_modules],
-                    )
+                module_names = [module.name for module in referenced_modules]
+                err_msg = (
+                    f"Unrecognized referenced module {type_decl.module_ref.name} "
+                    f"in {module_names}."
                 )
+                raise Exception(err_msg)
             return module.resolve_type_decl(
                 module.user_types()[type_decl.type_name], referenced_modules
             )
-        else:
-            return type_decl
+        return type_decl
 
     def get_type_decl(self, type_name):
         user_types = self.user_types()
@@ -328,10 +324,10 @@ class Module(SemaNode):
 
     def resolve_selection_type(self, selection_type_decl):
         if not isinstance(selection_type_decl, SelectionType):
-            raise Exception(
-                "Expected SelectionType, was %s"
-                % selection_type_decl.__class__.__name__
+            err_msg = (
+                f"Expected SelectionType, was {selection_type_decl.__class__.__name__}"
             )
+            raise TypeError(err_msg)
 
         choice_type = self.get_type_decl(selection_type_decl.type_decl.type_name)
         for named_type in choice_type.components:
@@ -349,7 +345,8 @@ class Module(SemaNode):
         if tag_implicitness is not None:
             return tag_implicitness
 
-        # Tagged CHOICEs must always be explicit if the default is implicit, automatic or empty
+        # Tagged CHOICEs must always be explicit
+        # if the default is implicit, automatic or empty
         # See X.680, 30.6c
         if isinstance(tagged_type_decl, ChoiceType):
             return TagImplicitness.EXPLICIT
@@ -358,7 +355,7 @@ class Module(SemaNode):
         if self.tag_default is None:
             # Explicit is default if nothing
             return TagImplicitness.EXPLICIT
-        elif self.tag_default == TagImplicitness.AUTOMATIC:
+        if self.tag_default == TagImplicitness.AUTOMATIC:
             # TODO: Expand according to rules for automatic tagging.
             return TagImplicitness.IMPLICIT
 
@@ -366,7 +363,7 @@ class Module(SemaNode):
 
     def __str__(self):
         lines = []
-        lines += ["%s DEFINITIONS ::=" % self.name]
+        lines += [f"{self.name} DEFINITIONS ::="]
         lines += ["BEGIN"]
 
         if self.exports:
@@ -387,10 +384,10 @@ class Module(SemaNode):
 
 class Exports(SemaNode):
     def __init__(self, elements):
-        self.symbols = [s for s in elements]
+        self.symbols = list(elements)
 
     def __str__(self):
-        return "EXPORTS %s;" % ", ".join(self.symbols)
+        return f"EXPORTS {', '.join(self.symbols)};"
 
     __repr__ = __str__
 
@@ -405,7 +402,7 @@ class Imports(SemaNode):
     def __str__(self):
         lines = ["IMPORTS"]
         for module, symbols in sorted(self.imports.items()):
-            lines += ["  %s FROM %s" % (", ".join(symbols), module)]
+            lines += [f"  {', '.join(symbols)} FROM {module}"]
         return "\n".join(lines) + ";"
 
     __repr__ = __str__
@@ -447,17 +444,18 @@ class Assignment(SemaNode):
         This happens to coincide with all contained SemaNodes as exposed by
         ``descendants`` with a ``reference_name`` method.
         """
-        return set(
+        return {
             d.reference_name()
             for d in self.descendants()
             if hasattr(d, "reference_name")
-        )
+        }
 
 
 class TypeAssignment(Assignment):
     def __init__(self, elements):
         if len(elements) != 3:
-            raise Exception("Malformed type assignment")
+            err_msg = "Malformed type assignment"
+            raise Exception(err_msg)
         type_name, _, type_decl = elements
         self.type_name = type_name
         self.type_decl = _create_sema_node(type_decl)
@@ -466,7 +464,7 @@ class TypeAssignment(Assignment):
         return self.type_name
 
     def __str__(self):
-        return "%s ::= %s" % (self.type_name, self.type_decl)
+        return f"{self.type_name} ::= {self.type_decl}"
 
     __repr__ = __str__
 
@@ -482,7 +480,7 @@ class ValueAssignment(Assignment):
         return self.value_name
 
     def __str__(self):
-        return "%s %s ::= %s" % (self.value_name, self.type_decl, self.value)
+        return f"{self.value_name} {self.type_decl} ::= {self.value}"
 
     __repr__ = __str__
 
@@ -512,24 +510,24 @@ class ConstructedType(SemaNode):
 
     def __str__(self):
         component_type_list = ", ".join(map(str, self.components))
-        return "%s { %s }" % (self.type_name, component_type_list)
+        return f"{self.type_name} {{ {component_type_list} }}"
 
     __repr__ = __str__
 
 
 class ChoiceType(ConstructedType):
     def __init__(self, elements):
-        super(ChoiceType, self).__init__(elements)
+        super().__init__(elements)
 
 
 class SequenceType(ConstructedType):
     def __init__(self, elements):
-        super(SequenceType, self).__init__(elements)
+        super().__init__(elements)
 
 
 class SetType(ConstructedType):
     def __init__(self, elements):
-        super(SetType, self).__init__(elements)
+        super().__init__(elements)
 
 
 class CollectionType(SemaNode):
@@ -543,21 +541,20 @@ class CollectionType(SemaNode):
 
     def __str__(self):
         if self.size_constraint:
-            return "%s %s OF %s" % (self.kind, self.size_constraint, self.type_decl)
-        else:
-            return "%s OF %s" % (self.kind, self.type_decl)
+            return f"{self.kind} {self.size_constraint} OF {self.type_decl}"
+        return f"{self.kind} OF {self.type_decl}"
 
     __repr__ = __str__
 
 
 class SequenceOfType(CollectionType):
     def __init__(self, elements):
-        super(SequenceOfType, self).__init__("SEQUENCE", elements)
+        super().__init__("SEQUENCE", elements)
 
 
 class SetOfType(CollectionType):
     def __init__(self, elements):
-        super(SetOfType, self).__init__("SET", elements)
+        super().__init__("SET", elements)
 
 
 class TaggedType(SemaNode):
@@ -569,15 +566,20 @@ class TaggedType(SemaNode):
             for tag_element in tag_token.elements:
                 if tag_element.ty == "TagClassNumber":
                     self.class_number = tag_element.elements[0]
-                elif tag_element.ty == "TagClass":
+                elif (
+                    tag_element.ty == "TagClass"
+                    or tag_element.ty == "DefinitiveNumberForm"
+                ):
                     self.class_name = tag_element.elements[0]
                 else:
-                    raise Exception("Unknown tag element: %s" % tag_element)
+                    err_msg = f"Unknown tag element: {tag_element}"
+                    raise Exception(err_msg)
             self.type_decl = _create_sema_node(type_token)
         elif len(elements) == 4:
             self.class_name, self.class_number, implicitness, self.type_decl = elements
         else:
-            raise Exception("Incorrect number of elements passed to TaggedType")
+            err_msg = "Incorrect number of elements passed to TaggedType"
+            raise Exception(err_msg)
 
         if implicitness == "IMPLICIT":
             self.implicitness = TagImplicitness.IMPLICIT
@@ -596,7 +598,7 @@ class TaggedType(SemaNode):
             class_spec.append(self.class_name)
         class_spec.append(self.class_number)
 
-        result = "[%s] " % " ".join(class_spec)
+        result = f"[{' '.join(class_spec)}] "
         if self.implicitness == TagImplicitness.IMPLICIT:
             result += "IMPLICIT "
         elif self.implicitness == TagImplicitness.EXPLICIT:
@@ -623,7 +625,7 @@ class SimpleType(SemaNode):
         if self.constraint is None:
             return self.type_name
 
-        return "%s %s" % (self.type_name, self.constraint)
+        return f"{self.type_name} {self.constraint}"
 
     __repr__ = __str__
 
@@ -651,7 +653,7 @@ class DefinedType(ReferencedType):
         if self.constraint is None:
             return type_name
 
-        return "%s %s" % (type_name, self.constraint)
+        return "{type_name} {self.constraint}"
 
     __repr__ = __str__
 
@@ -669,7 +671,7 @@ class SelectionType(ReferencedType):
         return self.type_name
 
     def __str__(self):
-        return "%s < %s" % (self.identifier, self.type_name)
+        return f"{self.identifier} < {self.type_name}"
 
     __repr__ = __str__
 
@@ -689,7 +691,7 @@ class ReferencedValue(SemaNode):
     def __str__(self):
         if not self.module_ref:
             return self.name
-        return "%s.%s" % (self.module_ref.name, self.name)
+        return f"{self.module_ref.name}.{self.name}"
 
     __repr__ = __str__
 
@@ -699,7 +701,7 @@ class SingleValueConstraint(SemaNode):
         self.values = [_maybe_create_sema_node(e) for e in elements[0]]
 
     def __str__(self):
-        return "(%s)" % " | ".join(map(str, self.values))
+        return f"({' | '.join(map(str, self.values))})"
 
     __repr__ = __str__
 
@@ -710,7 +712,7 @@ class ValueRangeConstraint(SemaNode):
         self.max_value = _maybe_create_sema_node(elements[1])
 
     def __str__(self):
-        return "(%s..%s)" % (self.min_value, self.max_value)
+        return f"({self.min_value}..{self.max_value})"
 
     __repr__ = __str__
 
@@ -721,12 +723,13 @@ class SizeConstraint(SemaNode):
     def __init__(self, elements):
         self.nested = _create_sema_node(elements[0])
         if not isinstance(self.nested, (ValueRangeConstraint, SingleValueConstraint)):
-            raise Exception(
-                "Unexpected size constraint type %s" % self.nested.__class__.__name__
+            err_msg = (
+                f"Unexpected size constraint type {self.nested.__class__.__name__ }"
             )
+            raise TypeError(err_msg)
 
     def __str__(self):
-        return "SIZE%s" % self.nested
+        return f"SIZE{self.nested}"
 
     __repr__ = __str__
 
@@ -756,17 +759,18 @@ class ComponentType(SemaNode):
         elif first_token.ty == "ComponentTypeComponentsOf":
             self.components_of_type = _create_sema_node(first_token.elements[0])
         else:
-            raise Exception("Unknown component type %s" % first_token)
+            err_msg = f"Unknown component type {first_token}"
+            raise Exception(err_msg)
 
     def __str__(self):
         if self.components_of_type:
-            return "COMPONENTS OF %s" % self.components_of_type
+            return f"COMPONENTS OF {self.components_of_type}"
 
-        result = "%s %s" % (self.identifier, self.type_decl)
+        result = f"{self.identifier} {self.type_decl}"
         if self.optional:
             result += " OPTIONAL"
         elif self.default_value is not None:
-            result += " DEFAULT %s" % self.default_value
+            result += f" DEFAULT {self.default_value}"
 
         return result
 
@@ -779,7 +783,7 @@ class NamedType(SemaNode):
         self.type_decl = _create_sema_node(elements[1])
 
     def __str__(self):
-        return "%s %s" % (self.identifier, self.type_decl)
+        return f"{self.identifier} {self.type_decl}"
 
     __repr__ = __str__
 
@@ -805,12 +809,13 @@ class ValueListType(SemaNode):
         constraint = ""
 
         if self.named_values:
-            named_value_list = " { %s }" % ", ".join(map(str, self.named_values))
+            named_value_list = ", ".join(map(str, self.named_values))
+            named_value_list = f"{{ {named_value_list} }}"
 
         if self.constraint:
-            constraint = " %s" % self.constraint
+            constraint = f" {self.constraint}"
 
-        return "%s%s%s" % (self.type_name, named_value_list, constraint)
+        return f"{self.type_name}{named_value_list}{constraint}"
 
     __repr__ = __str__
 
@@ -826,12 +831,13 @@ class BitStringType(SemaNode):
         constraint = ""
 
         if self.named_bits:
-            named_bit_list = " { %s }" % ", ".join(map(str, self.named_bits))
+            named_bit_list = ", ".join(map(str, self.named_bits))
+            named_bit_list = " {{ {named_bit_list} }}"
 
         if self.constraint:
-            constraint = " %s" % self.constraint
+            constraint = f" {self.constraint}"
 
-        return "%s%s%s" % (self.type_name, named_bit_list, constraint)
+        return f"{self.type_name}{named_bit_list}{constraint}"
 
     __repr__ = __str__
 
@@ -848,7 +854,7 @@ class NamedValue(SemaNode):
             self.value = value_token.elements[0]
 
     def __str__(self):
-        return "%s (%s)" % (self.identifier, self.value)
+        return f"{self.identifier} ({self.value})"
 
     __repr__ = __str__
 
@@ -892,7 +898,7 @@ class NameAndNumberForm(SemaNode):
         self.number = _create_sema_node(elements[1])
 
     def __str__(self):
-        return "%s(%s)" % (self.name, self.number)
+        return f"{self.name}({self.number})"
 
     __repr__ = __str__
 
@@ -912,7 +918,7 @@ class BinaryStringValue(SemaNode):
         self.value = elements[0]
 
     def __str__(self):
-        return "'%s'B" % self.value
+        return f"'{self.value}'B"
 
     __repr__ = __str__
 
@@ -922,7 +928,7 @@ class HexStringValue(SemaNode):
         self.value = elements[0]
 
     def __str__(self):
-        return "'%s'H" % self.value
+        return f"'{self.value}'H"
 
     __repr__ = __str__
 
@@ -930,88 +936,90 @@ class HexStringValue(SemaNode):
 def _maybe_create_sema_node(token):
     if isinstance(token, parser.AnnotatedToken):
         return _create_sema_node(token)
-    else:
-        return token
+    return token
 
 
 def _create_sema_node(token):
     _assert_annotated_token(token)
 
-    if token.ty == "ModuleDefinition":
-        return Module(token.elements)
-    elif token.ty == "Exports":
-        return Exports(token.elements)
-    elif token.ty == "Imports":
-        return Imports(token.elements)
-    elif token.ty == "TypeAssignment":
-        return TypeAssignment(token.elements)
-    elif token.ty == "ValueAssignment":
-        return ValueAssignment(token.elements)
-    elif token.ty == "ComponentType":
-        return ComponentType(token.elements)
-    elif token.ty == "NamedType":
-        return NamedType(token.elements)
-    elif token.ty == "ValueListType":
-        return ValueListType(token.elements)
-    elif token.ty == "BitStringType":
-        return BitStringType(token.elements)
-    elif token.ty == "NamedValue":
-        return NamedValue(token.elements)
-    elif token.ty == "Type":
-        # Type tokens have a more specific type category
-        # embedded as their first element
-        return _create_sema_node(token.elements[0])
-    elif token.ty == "SimpleType":
-        return SimpleType(token.elements)
-    elif token.ty == "DefinedType":
-        return DefinedType(token.elements)
-    elif token.ty == "SelectionType":
-        return SelectionType(token.elements)
-    elif token.ty == "ReferencedValue":
-        return ReferencedValue(token.elements)
-    elif token.ty == "TaggedType":
-        return TaggedType(token.elements)
-    elif token.ty == "SequenceType":
-        return SequenceType(token.elements)
-    elif token.ty == "ChoiceType":
-        return ChoiceType(token.elements)
-    elif token.ty == "SetType":
-        return SetType(token.elements)
-    elif token.ty == "SequenceOfType":
-        return SequenceOfType(token.elements)
-    elif token.ty == "SetOfType":
-        return SetOfType(token.elements)
-    elif token.ty == "ExtensionMarker":
-        return ExtensionMarker(token.elements)
-    elif token.ty == "SingleValueConstraint":
-        return SingleValueConstraint(token.elements)
-    elif token.ty == "SizeConstraint":
-        return SizeConstraint(token.elements)
-    elif token.ty == "ValueRangeConstraint":
-        return ValueRangeConstraint(token.elements)
-    elif token.ty == "ObjectIdentifierValue":
-        return ObjectIdentifierValue(token.elements)
-    elif token.ty == "NameForm":
-        return NameForm(token.elements)
-    elif token.ty == "NumberForm":
-        return NumberForm(token.elements)
-    elif token.ty == "NameAndNumberForm":
-        return NameAndNumberForm(token.elements)
-    elif token.ty == "BinaryStringValue":
-        return BinaryStringValue(token.elements)
-    elif token.ty == "HexStringValue":
-        return HexStringValue(token.elements)
-    elif token.ty == "ModuleReference":
-        return ModuleReference(token.elements)
-    elif token.ty == "GlobalModuleReference":
-        return GlobalModuleReference(token.elements)
+    match token.ty:
+        case "ModuleDefinition":
+            return Module(token.elements)
+        case "Exports":
+            return Exports(token.elements)
+        case "Imports":
+            return Imports(token.elements)
+        case "TypeAssignment":
+            return TypeAssignment(token.elements)
+        case "ValueAssignment":
+            return ValueAssignment(token.elements)
+        case "ComponentType":
+            return ComponentType(token.elements)
+        case "NamedType":
+            return NamedType(token.elements)
+        case "ValueListType":
+            return ValueListType(token.elements)
+        case "BitStringType":
+            return BitStringType(token.elements)
+        case "NamedValue":
+            return NamedValue(token.elements)
+        case "Type":
+            # Type tokens have a more specific type category
+            # embedded as their first element
+            return _create_sema_node(token.elements[0])
+        case "SimpleType":
+            return SimpleType(token.elements)
+        case "DefinedType":
+            return DefinedType(token.elements)
+        case "SelectionType":
+            return SelectionType(token.elements)
+        case "ReferencedValue":
+            return ReferencedValue(token.elements)
+        case "TaggedType":
+            return TaggedType(token.elements)
+        case "SequenceType":
+            return SequenceType(token.elements)
+        case "ChoiceType":
+            return ChoiceType(token.elements)
+        case "SetType":
+            return SetType(token.elements)
+        case "SequenceOfType":
+            return SequenceOfType(token.elements)
+        case "SetOfType":
+            return SetOfType(token.elements)
+        case "ExtensionMarker":
+            return ExtensionMarker(token.elements)
+        case "SingleValueConstraint":
+            return SingleValueConstraint(token.elements)
+        case "SizeConstraint":
+            return SizeConstraint(token.elements)
+        case "ValueRangeConstraint":
+            return ValueRangeConstraint(token.elements)
+        case "ObjectIdentifierValue":
+            return ObjectIdentifierValue(token.elements)
+        case "NameForm":
+            return NameForm(token.elements)
+        case "NumberForm":
+            return NumberForm(token.elements)
+        case "NameAndNumberForm":
+            return NameAndNumberForm(token.elements)
+        case "BinaryStringValue":
+            return BinaryStringValue(token.elements)
+        case "HexStringValue":
+            return HexStringValue(token.elements)
+        case "ModuleReference":
+            return ModuleReference(token.elements)
+        case "GlobalModuleReference":
+            return GlobalModuleReference(token.elements)
 
-    raise Exception("Unknown token type: %s" % token.ty)
+    err_msg = f"Unknown token type: {token.ty}"
+    raise TypeError(err_msg)
 
 
 def _assert_annotated_token(obj):
     if type(obj) is not parser.AnnotatedToken:
-        raise Exception("Object %r is not an annotated token" % obj)
+        err_msg = f"Object {obj} is not an annotated token"
+        raise TypeError(err_msg)
 
 
 # HACK: Generate unique names for unnamed members
@@ -1021,4 +1029,4 @@ _unnamed_counter = 0
 def _get_next_unnamed():
     global _unnamed_counter
     _unnamed_counter += 1
-    return "unnamed%d" % _unnamed_counter
+    return f"unnamed{_unnamed_counter}"
