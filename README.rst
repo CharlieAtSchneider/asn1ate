@@ -1,5 +1,5 @@
 asn1ate -- ASN.1 translation library.
-Copyright (c) 2013-2019, Schneider Electric Buildings AB
+Copyright (c) 2013-2025, Schneider Electric Buildings AB
 
 Introduction
 ------------
@@ -55,19 +55,6 @@ that every release will likely break something for you.
 
 The in-tree ``pyasn1`` code generator will be kept up-to-date, of course, and
 may serve as an example of different codegen tasks,
-
-
-Dependencies
-------------
-
-The only third-party dependency is ``pyparsing``.
-
-Although ``asn1ate`` was initially developed on Python 3.2, it has been tested
-with Python 2.7 and should port to older Python versions easily. Latest release
-tested with:
-
-* Python 3.6.3
-* Python 2.7.14
 
 
 Design notes

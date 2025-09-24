@@ -1,0 +1,84 @@
+[build-system]
+requires = ["uv_build>=0.8.22,<0.9.0"]
+build-backend = "uv_build"
+
+[project]
+name = "asn1ate"
+version = "0.6.2"
+license = "BSD-3-Clause"
+license-files = ["LICENSE.txt"]
+description = "ASN.1 translation library."
+readme = "README.rst"
+authors = [
+  { name = "Schneider Electric", email = "OSPO@se.com" },
+  { name = "Kim Gräsman", email = "kim.grasman@gmail.com" }
+]
+
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Code Generator"
+]
+
+requires-python = ">=3.10"
+dependencies = [
+  "pyparsing>=3.2.5",
+  "pyasn1>=0.6.1"
+]
+
+[dependency-groups]
+dev = [
+  "ruff>=0.13.1"
+]
+
+[project.urls]
+Repository = "https://github.com/kimgr/asn1ate"
+
+[project.scripts]
+asn1ate = "asn1ate.pyasn1gen:main_cli"
+
+[tool.uv.build-backend]
+source-exclude = ["src/asn1ate/test.py"]
+
+[tool.ruff.lint]
+extend-select = [
+  "I",
+  "YTT",
+  "S",
+  "BLE",
+  "FBT",
+  "B",
+  "A",
+  "COM",
+  "C4",
+  "T10",
+  "DJ",
+  "EM",
+  "ISC",
+  "ICN",
+  "PYI",
+  "RSE",
+  "RET",
+  "SLF",
+  "SIM",
+  "TC",
+  "ARG",
+  "PTH",
+  "FLY",
+  "C90",
+  "NPY",
+  "N",
+  "PERF",
+  "E",
+  "F",
+  "W",
+  "UP",
+  "FURB",
+  "RUF",
+  "TRY",
+  "LOG",
+]
+ignore = ["COM812", "D213", "D203", "S603", "D401", "N806", "N802", "UP038", "TRY002", "C901"]
