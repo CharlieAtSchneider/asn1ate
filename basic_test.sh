@@ -15,10 +15,10 @@ do
     echo "Checking $f";
     rm -rf _testdir/
     mkdir -p _testdir/
-    uv run src/asn1ate/test.py --outdir=_testdir --gen "$f"
+    python src/asn1ate/test.py --outdir=_testdir --gen "$f"
     # Run python over _testdir/*.py
     for m in _testdir/*.py;
     do
-        uv run "$m"
+        python "$m"
     done
 done
