@@ -24,4 +24,3 @@ FOR %%t IN (testdata\*.asn) DO (
     )
   )
 )
-python

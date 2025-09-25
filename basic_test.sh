@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/bin/sh
 
 # For every *.asn file, run it through test.py and pipe
 # the result back to Python.
@@ -10,15 +10,16 @@
 
 set -e
 
+export PYTHONPATH=`pwd`
 for f in testdata/*.asn;
 do
     echo "Checking $f";
     rm -rf _testdir/
     mkdir -p _testdir/
-    python src/asn1ate/test.py --outdir=_testdir --gen "$f"
+    python asn1ate/test.py --outdir=_testdir --gen $f
     # Run python over _testdir/*.py
     for m in _testdir/*.py;
     do
-        python "$m"
+        python $m
     done
 done
