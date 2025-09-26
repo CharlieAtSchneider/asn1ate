@@ -152,7 +152,7 @@ python -m venv .venv
 source .venv/bin/activate
 ## Windows
 .\.venv\Script\activate.ps1 (or activate.bat on cmd)
-# Install dependencies
+# 3) Install dependencies
 pip install pyproject.toml
 ```
 For building the project:
