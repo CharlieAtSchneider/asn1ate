@@ -6,9 +6,8 @@ __pycache__/
 source.asn*
 
 # Distutils artifacts
-MANIFEST
-build/
-dist/
+/build/
+/dist/
 
 # Patches
 *.patch
@@ -17,9 +16,9 @@ dist/
 .ropeproject
 env/
 dbg/
-_testdir
+/_testdir
 
 # TODO
 todo.txt
 
-uv.lock
+/uv.lock
