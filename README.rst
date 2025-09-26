@@ -111,3 +111,33 @@ includes the generally useful one, ``asn1ate.pyasn1gen``.
 The most notable members of ``asn1ate.support`` are probably the
 ``PythonWriter`` and ``PythonFragment`` classes, which simplify generation of
 correctly indented Python code.
+
+Building and running
+--------------------
+
+Create a virtual environment
+```sh
+# 1) Create a venv
+python -m venv .venv
+# 2) Use the virtual environment
+## Linux/MacOS
+source .venv/bin/activate
+## Windows
+.\.venv\Script\activate.ps1 (or activate.bat on cmd)
+# Install dependencies
+pip install pyproject.toml
+```
+For building the project:
+```sh
+pip install build
+python -m build
+```
+Run tests:
+```sh
+# On Linux/MacOS
+./basic_test.sh
+```
+```powershell
+# On Windows
+.\basic_test.bat
+```

@@ -21,3 +21,5 @@ _testdir
 
 # TODO
 todo.txt
+
+uv.lock

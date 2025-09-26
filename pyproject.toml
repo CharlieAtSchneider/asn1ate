@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling>=1.27.0", "hatch-vcs>=0.4.0"]
+build-backend = "hatchling.build"
+
 [project]
 name = "asn1ate"
 version = "0.6.2"
@@ -16,25 +20,25 @@ classifiers = [
   "Operating System :: OS Independent",
   "Programming Language :: Python",
   "Programming Language :: Python :: 3",
-  "Topic :: Software Development :: Code Generator"
+  "Topic :: Software Development :: Code Generators"
 ]
 
 requires-python = ">=3.10"
 dependencies = [
   "pyparsing >=2.0.0, !=3.0.5, !=3.0.6",
-  "pyasn1"
 ]
 
 [dependency-groups]
 dev = [
-  "pyasn1"
+  "pyasn1",
+  "build"
 ]
 
 [project.urls]
-Repository = "https://github.com/kimgr/asn1ate"
+Repository = "https://github.com/schneider-electric/asn1ate"
 
 [project.scripts]
 asn1ate = "asn1ate.pyasn1gen:main_cli"
 
-[tool.uv.build-backend]
-source-exclude = ["src/asn1ate/test.py"]
+[tool.hatch.build.targets.wheel]
+exclude = ["src/asn1ate/test.py"]
