@@ -16,8 +16,11 @@ if command -v uv >/dev/null 2>&1
 then
     # Automatically uses .venv and install dependencies
     RUNPY='uv run'
-else
+elif command -v python >/dev/null 2>&1
+then
     RUNPY='python'
+else
+    RUNPY='python3'
 fi
 
 for f in testdata/*.asn;
