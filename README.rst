@@ -114,11 +114,18 @@ correctly indented Python code.
 
 Building and testing with uv
 ----------------------------
+Note for developers working within the Schneider Electric network - configure uv to use mirror repo
+by editing ~/.config/uv/uv.toml on Linux/MacOS or %APPDATA%\uv\uv.toml on Windows:
+```toml
+native-tls = true
 
+[[index]]
+url = "<LINK_TO_MIRROR_REPOSITORY>"
+```
 Run tests:
 ```sh
 # Make sure uv is installed
-./basic_test.sh # or .bat on Windows
+./basic_test.sh # or .\basic_test.bat on Windows
 ```
 
 Build .whl
@@ -128,6 +135,13 @@ uv build
 
 Building and testing with native Python
 ---------------------------------------
+Note for developers working within Schneider Electric network - configure pip to use mirror repo
+Use artifactory mirror repository instead:
+```sh
+pip config --user set global.index <LINK_TO_MIRROR_REPOSITORY>
+pip config --user set global.index-url <LINK_TO_MIRROR_REPOSITORY>
+pip config --user set global.trusted-host <LINK_TO_MIRROR_REPOSITORY>
+```
 
 Create a virtual environment
 ```sh
