@@ -20,6 +20,7 @@ elif command -v python >/dev/null 2>&1
 then
     RUNPY='python'
 else
+    # Debian/Ubuntu doesn't call Python "python"
     RUNPY='python3'
 fi
 
