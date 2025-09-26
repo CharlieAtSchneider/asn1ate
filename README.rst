@@ -1,5 +1,5 @@
 asn1ate -- ASN.1 translation library.
-Copyright (c) 2013-2019, Schneider Electric Buildings AB
+Copyright (c) 2013-2025, Schneider Electric Buildings AB
 
 Introduction
 ------------
@@ -112,8 +112,22 @@ The most notable members of ``asn1ate.support`` are probably the
 ``PythonWriter`` and ``PythonFragment`` classes, which simplify generation of
 correctly indented Python code.
 
-Building and running
---------------------
+Building and testing with uv
+----------------------------
+
+Run tests:
+```sh
+# Make sure uv is installed
+./basic_test.sh # or .bat on Windows
+```
+
+Build .whl
+```sh
+uv build
+```
+
+Building and testing with native Python
+---------------------------------------
 
 Create a virtual environment
 ```sh
@@ -132,7 +146,7 @@ For building the project:
 pip install build
 python -m build
 ```
-Run tests:
+Run tests (make sure to use .venv first)
 ```sh
 # On Linux/MacOS
 ./basic_test.sh

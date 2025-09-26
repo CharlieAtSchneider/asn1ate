@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling>=1.27.0", "hatch-vcs>=0.4.0"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.8.22,<0.9.0"]
+build-backend = "uv_build"
 
 [project]
 name = "asn1ate"
@@ -40,5 +40,5 @@ Repository = "https://github.com/schneider-electric/asn1ate"
 [project.scripts]
 asn1ate = "asn1ate.pyasn1gen:main_cli"
 
-[tool.hatch.build.targets.wheel]
-exclude = ["src/asn1ate/test.py"]
+[tool.uv.build-backend]
+source-exclude = ["src/asn1ate/test.py"]
